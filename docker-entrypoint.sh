@@ -182,7 +182,7 @@ if [ ! -z "${FIREBIRD_DATABASE}" -a ! -f "${DBPATH}/${FIREBIRD_DATABASE}.init" ]
     mkdir -p "${VOLUME}/tmp"
     for filename in ${SQLDUMP_FILES[@]}; do
         gsutil cp "gs://${FIREBIRD_DATABASE}.blp-digital.com/${filename}" "${VOLUME}/tmp/${filename}" && \
-            "${PREFIX}/bin/isql" -d "${DBPATH}/${FIREBIRD_DATABASE}" -i "${VOLUME}/tmp/${filename}" && \
+            "${PREFIX}/bin/isql" -i "${VOLUME}/tmp/${filename}" "${DBPATH}/${FIREBIRD_DATABASE}" && \
             rm -f "${VOLUME}/tmp/${filename}"
     done
     touch "${DBPATH}/${FIREBIRD_DATABASE}.init"
