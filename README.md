@@ -29,21 +29,6 @@ The default password for `sysdba` is randomly generated when you first launch th
 look in the docker log for your container or check `/firebird/etc/SYSDBA.password`.
 Alternatively you may pass the environment variable ISC_PASSWORD to set the default password.
 
-## Update policy
-### Stable releases
-I will maintain current versions of Stable firebird releases. Each version of the stable branches
-will recieve a tag on both github and docker that will be semi permanent. The latest tagged
-versions will periodically be deleted and remade if a new feature for the image is created.
-Tags other than the latest release will not be updated as image specific features are implemented
-#### 3.0
-Any new image features will be developed on the 3.0 releases
-#### 2.5
-The 2.5 series was eol'd by the firebird guys as of the 2.5.9 release. I do not anticipate any further updates to the 2.5 images.
-### Development policy
-4.0 has finally entered beta and along with it has some pretty major changes including ODS changes requiring a complete backup and restore to upgrade.
-Because of this I am taking the opportunity to update the underlying debian image to debian buster. Currently the image builds but I have not tested using it yet.
-In the coming months I will start making it usable.
-I hope to have the 4.0 image usable by the time the official sources are at release candidate status.
 
 ## Description
 This is a Firebird SQL Database container.
@@ -153,3 +138,11 @@ HC_DB=employee.fdb
 ## Events
 Please note for events to work properly you must either configure RemoteAuxPort and forward it with -p using a direct mapping where both sides internal and external use the same port or use --net=host to allow the random port mapping to work.
 see: http://www.firebirdfaq.org/faq53/ for more information on event port mapping.
+
+## How to handle in kubernetes cluster
+### Reinitialize
+1. Delete the statefulset
+2. Delete the presistent volume claim (pvc)
+3. Make sure persistent volume was also removed
+4. run the python generator.py file in the deploy repos. /app/database/generator.py. this generates the config needed in the next step
+5. kubectl apply -f THE_GENERATED_CONFIG
