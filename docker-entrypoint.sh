@@ -169,13 +169,16 @@ SQLDUMP_FILES=(
     "BEST.sql"
     "BESTERL.sql"
     "BESTPOS.sql"
+    "LIEFRANT.sql"
+    "LIEFRANTERL.sql"
     "REWAKON.sql"
     "REWAKONERL.sql"
     "REWAKONPOS.sql"
+    "REWAKONPROTOKOLL.sql"
     "WAEIN.sql"
     "WAEINERL.sql"
     "WAEINPOS.sql"
-    "WANEBKOS.sql"
+    "WAEINPOSP.sql"
 )
 
 if [ ! -z "${FIREBIRD_DATABASE}" -a ! -f "${DBPATH}/${FIREBIRD_DATABASE}.init" ]; then
