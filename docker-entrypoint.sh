@@ -184,6 +184,7 @@ SQLDUMP_FILES=(
     "WANEBKOS.sql"
     "WANEBKOSDEL.sql"
     "REWAKONABWMWST.sql"
+    "ARTIKEL.sql"
 )
 
 if [ ! -z "${FIREBIRD_DATABASE}" -a ! -f "${DBPATH}/${FIREBIRD_DATABASE}.init" ]; then
