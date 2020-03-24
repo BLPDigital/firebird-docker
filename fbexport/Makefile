@@ -6,7 +6,7 @@ OBJECTS_FBC=fbcopy/args.o fbcopy/fbcopy.o fbcopy/TableDependency.o fbcopy/main.o
 
 # Compiler & linker flags
 COMPILE_FLAGS=-O2 -DIBPP_LINUX -DIBPP_GCC -Iibpp -W -Wall -fPIC
-LINK_FLAGS=-pthread -l:$(LIBEFBCLIENT)
+LINK_FLAGS=-pthread -l:libfbclient.so.3.0.2
 
 #COMPILE_FLAGS=-O1 -DIBPP_WINDOWS -DIBPP_GCC -Iibpp
 #LINK_FLAGS=

@@ -1,201 +1,66 @@
 #!/bin/bash
-set -e
 
-build() {
-    local var="$1"
-    local stmt="$2"
-    export $var+="$(printf "\n${stmt}")"
-}
+# Download data
+/bin/bash /usr/local/bin/download_data.sh
 
-run() {
-    echo "${!1}" | ${PREFIX}/bin/isql
-}
+source /etc/firebird/3.0/SYSDBA.password
 
-createNewPassword() {
-    # openssl generates random data.
-        openssl </dev/null >/dev/null 2>/dev/null
-    if [ $? -eq 0 ]
-    then
-        # We generate 40 random chars, strip any '/''s and get the first 20
-        NewPasswd=`openssl rand -base64 40 | tr -d '/' | cut -c1-20`
-    fi
+sed -i -e '/RemoteBindAddress =/ s/= .*/= /' /etc/firebird/3.0/firebird.conf
+echo "${FIREBIRD_DATABASE} = /var/lib/firebird/3.0/data/${FIREBIRD_DATABASE}.fdb" >> /etc/firebird/3.0/databases.conf
 
-        # If openssl is missing...
-        if [ -z "$NewPasswd" ]
-        then
-                NewPasswd=`dd if=/dev/urandom bs=10 count=1 2>/dev/null | od -x | head -n 1 | tr -d ' ' | cut -c8-27`
-        fi
+DB_DIR=/var/lib/firebird/3.0/data
+INIT_DIR=/etc/firebird/3.0/init
+mkdir -p ${DB_DIR}
 
-        # On some systems even this routines may be missing. So if
-        # the specific one isn't available then keep the original password.
-    if [ -z "$NewPasswd" ]
-    then
-        NewPasswd="masterkey"
-    fi
-
-        echo "$NewPasswd"
-}
-
-# usage: file_env VAR [DEFAULT]
-#    ie: file_env 'XYZ_DB_PASSWORD' 'example'
-# (will allow for "$XYZ_DB_PASSWORD_FILE" to fill in the value of
-#  "$XYZ_DB_PASSWORD" from a file, especially for Docker's secrets feature)
-file_env() {
-    local var="$1"
-    local fileVar="${var}_FILE"
-    local def="${2:-}"
-    if [ "${!var:-}" ] && [ "${!fileVar:-}" ]; then
-        echo >&2 "error: both $var and $fileVar are set (but are exclusive)"
-        exit 1
-    fi
-    local val="$def"
-    if [ "${!var:-}" ]; then
-        val="${!var}"
-    elif [ "${!fileVar:-}" ]; then
-        val="$(< "${!fileVar}")"
-    fi
-    export "$var"="$val"
-    unset "$fileVar"
-}
-
-confSet() {
-    confFile="${VOLUME}/etc/firebird.conf"
-    # Uncomment specified value
-    sed -i "s/^#${1}/${1}/g" "${confFile}"
-    # Set Value to new value
-    sed -i "s~^\(${1}\s*=\s*\).*$~\1${2}~" "${confFile}"
-}
-
-# Create any missing folders
-mkdir -p "${VOLUME}/system"
-mkdir -p "${VOLUME}/log"
-mkdir -p "${VOLUME}/data"
-if [[ ! -e "${VOLUME}/etc/" ]]; then
-    cp -R "${PREFIX}/skel/etc" "${VOLUME}/"
-    file_env 'EnableLegacyClientAuth'
-    file_env 'EnableWireCrypt'
-    if [[ ${EnableLegacyClientAuth} == 'true' ]]; then
-        confSet AuthServer "Legacy_Auth, Srp, Win_Sspi"
-        confSet AuthClient "Legacy_Auth, Srp, Win_Sspi"
-        confSet UserManager "Legacy_UserManager, Srp"
-        confSet WireCrypt "enabled"
-    fi
-    if [[ ${EnableWireCrypt} == 'true' ]]; then
-        confSet WireCrypt "enabled"
-    fi
-fi
-
-if [ ! -f "${VOLUME}/system/security3.fdb" ]; then
-    cp "${PREFIX}/skel/security3.fdb" "${VOLUME}/system/security3.fdb"
-    file_env 'ISC_PASSWORD'
-    if [ -z ${ISC_PASSWORD} ]; then
-       ISC_PASSWORD=$(createNewPassword)
-       echo "setting 'SYSDBA' password to '${ISC_PASSWORD}'"
-    fi
-
-    # initialize SYSDBA user for Srp authentication
-    ${PREFIX}/bin/isql -user sysdba "${VOLUME}/system/security3.fdb" <<EOL
-create or alter user SYSDBA password '${ISC_PASSWORD}' using plugin Srp;
-commit;
-quit;
-EOL
-
-    if [[ ${EnableLegacyClientAuth} == 'true' ]]; then
-        # also initialize/reset SYSDBA user for legacy authentication
-        ${PREFIX}/bin/isql -user sysdba "${VOLUME}/system/security3.fdb" <<EOL
-create or alter user SYSDBA password '${ISC_PASSWORD}' using plugin Legacy_UserManager;
-commit;
-quit;
-EOL
-    fi
-# create or alter user SYSDBA password '${ISC_PASSWORD}';
-
-    cat > "${VOLUME}/etc/SYSDBA.password" <<EOL
-# Firebird generated password for user SYSDBA is:
-#
-ISC_USER=sysdba
-ISC_PASSWORD=${ISC_PASSWORD}
-#
-# Also set legacy variable though it can't be exported directly
-#
-ISC_PASSWD=${ISC_PASSWORD}
-#
-# generated at time $(date)
-#
-# Your password can be changed to a more suitable one using
-# SQL operator ALTER USER.
-#
-
-EOL
-
-fi
-
-if [ -f "${VOLUME}/etc/SYSDBA.password" ]; then
-    source "${VOLUME}/etc/SYSDBA.password"
-fi;
-
-file_env 'FIREBIRD_USER'
-file_env 'FIREBIRD_PASSWORD'
-file_env 'FIREBIRD_DATABASE'
-
-build isql "set sql dialect 3;"
-if [ ! -z "${FIREBIRD_DATABASE}" -a ! -f "${DBPATH}/${FIREBIRD_DATABASE}" ]; then
-    if [ "${FIREBIRD_USER}" ];  then
-        build isql "CONNECT employee USER '${ISC_USER}' PASSWORD '${ISC_PASSWORD}';"
-        if [ -z "${FIREBIRD_PASSWORD}" ]; then
-            FIREBIRD_PASSWORD=$(createNewPassword)
-            echo "setting '${FIREBIRD_USER}' password to '${FIREBIRD_PASSWORD}'"
-        fi
-        build isql "CREATE USER ${FIREBIRD_USER} PASSWORD '${FIREBIRD_PASSWORD}';"
-        build isql "COMMIT;"
-    fi
-
-    stmt="CREATE DATABASE '${DBPATH}/${FIREBIRD_DATABASE}'"
-    if [ "${FIREBIRD_USER}" ];  then
-        stmt+=" USER '${FIREBIRD_USER}' PASSWORD '${FIREBIRD_PASSWORD}'"
-    else
-        stmt+=" USER '${ISC_USER}' PASSWORD '${ISC_PASSWORD}'"
-    fi
-    stmt+=" DEFAULT CHARACTER SET UTF8;";
-    build isql "${stmt}";
-    build isql "COMMIT;"
-    if [ "${isql}" ]; then
-        build isql "QUIT;"
-        run isql
-    fi
-fi
-
-SQLDUMP_FILES=(
-    "BEST.sql"
-    "BESTERL.sql"
-    "BESTPOS.sql"
-    "LIEFRANT.sql"
-    "LIEFRANTERL.sql"
-    "REWAKON.sql"
-    "REWAKONERL.sql"
-    "REWAKONPOS.sql"
-    "REWAKONPROTOKOLL.sql"
-    "WAEIN.sql"
-    "WAEINERL.sql"
-    "WAEINPOS.sql"
-    "WAEINPOSP.sql"
-    "CUSTOMER.sql"
-    "FIRMA.sql"
-    "WANEBKOS.sql"
-    "WANEBKOSDEL.sql"
-    "REWAKONABWMWST.sql"
-    "ARTIKEL.sql"
-    "NEBENKOS.sql"
+TABLE_NAMES=(
+    "BESTERL"
+    "BEST"
+    "BESTPOS"
+    "LIEFRANT"
+    "LIEFRANTERL"
+    "REWAKON"
+    "REWAKONERL"
+    "REWAKONPOS"
+    "REWAKONPROTOKOLL"
+    "WAEIN"
+    "WAEINERL"
+    "WAEINPOS"
+    "WAEINPOSP"
+    "CUSTOMER"
+    "FIRMA"
+    "WANEBKOS"
+    "WANEBKOSDEL"
+    "REWAKONABWMWST"
+    "ARTIKEL"
+    "NEBENKOS"
+    "PEINHEIT"
+    "EINHEIT"
 )
 
-if [ ! -z "${FIREBIRD_DATABASE}" -a ! -f "${DBPATH}/${FIREBIRD_DATABASE}.init" ]; then
-    mkdir -p "${VOLUME}/tmp"
+SQLDUMP_FILES=(
+    "db_create_tables.sql"
+    "db_create_index.sql"
+    "db_auth.sql"
+)
+
+sed -i -e "s/SUB_TYPE BLR/SUB_TYPE BINARY/g" ${INIT_DIR}/db_meta.sql
+echo ${TABLE_NAMES[*]} | xargs -n 1 | xargs -I{} awk '/CREATE TABLE {} \(/,/^$/' ${INIT_DIR}/db_meta.sql >> ${INIT_DIR}/db_create_tables.sql
+echo ${TABLE_NAMES[*]} | xargs -n 1 | xargs -I{} awk '/CREATE INDEX [^ ]+ ON {} /' ${INIT_DIR}/db_meta.sql >> ${INIT_DIR}/db_create_index.sql
+
+
+
+if [ ! -f "${DB_DIR}/${FIREBIRD_DATABASE}.fdb" ]; then
+
+    cat ${INIT_DIR}/db_create.sql | isql-fb
     for filename in ${SQLDUMP_FILES[@]}; do
-        gsutil cp "gs://${FIREBIRD_DATABASE}.blp-digital.com/${filename}" "${VOLUME}/tmp/${filename}" && \
-            "${PREFIX}/bin/isql" -i "${VOLUME}/tmp/${filename}" "${DBPATH}/${FIREBIRD_DATABASE}" && \
-            rm -f "${VOLUME}/tmp/${filename}"
+        isql-fb -i ${INIT_DIR}/${filename} "${DB_DIR}/${FIREBIRD_DATABASE}.fdb"
+    done
+
+    for tablename in ${TABLE_NAMES[@]}; do
+        fbexport -I -A WIN1252 -V ${tablename} -D "${DB_DIR}/${FIREBIRD_DATABASE}.fdb" -H "" -U "machine" -P ${FIREBIRD_DATABASE} -F "${VOLUME}/tmp/${tablename}.fbx" -R  && \
+        rm -f "${VOLUME}/tmp/${tablename}.fbx"
     done
     touch "${DBPATH}/${FIREBIRD_DATABASE}.init"
 fi
 
-$@
+exec /usr/sbin/fbguard
